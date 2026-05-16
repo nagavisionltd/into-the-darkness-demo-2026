@@ -1,0 +1,248 @@
+NAGA'S GAME DESIGN KNOWLEDGE BASE
+====================================
+
+Source Material Analysis:
+- GAME-DESIGN-2026-SEGA.md (Sega Beat Framework)
+- COMBAT_IMPROVEMENTS_PLAN.md (Combat & Systems)
+- Lord Soul & Character Profiles
+
+---
+
+## COMBAT FEEL & JUICE
+
+1. HIT STOP (Freeze Frames)
+   - Purpose: Adds weight to heavy attacks
+   - Timing: 50-100ms freeze on impact
+   - When to use: Combo hits 5+, finishers, heavy attacks
+   - NOT for: Light jabs (hits 1-2)
+   - Implementation: Pause physics and anims, resume after delay
+
+2. SCREEN SHAKE
+   - Scale intensity by knockback multiplier
+   - Light hit: 80ms @ 0.002 intensity
+   - Medium hit: 120ms @ 0.004 intensity
+   - Heavy/Finisher: 200ms @ 0.006 intensity
+   - Explosion: 300ms @ 0.008 intensity
+
+3. KNOCKBACK SCALING
+   - Early combo (hits 1-2): 0.1x (keep enemy close)
+   - Mid combo (hits 3-4): 0.5x (light pushback)
+   - Late combo (hits 5-6): 1.0x (medium pushback)
+   - Finisher (hit 7+): 2.5x (launch enemy)
+   - This creates natural combo flow without manual juggling
+
+4. PARTICLE BURSTS
+   - Spawn on impact direction
+   - Count scales with knockback (3-5 light, 12-20 heavy)
+   - Use ADD blend mode for energy effects
+   - Tint colors: Orange (light) → Yellow (medium) → White (heavy)
+
+5. SOUND LAYERING
+   - Light hit: Soft thud only
+   - Medium hit: Crack + bass layer
+   - Heavy hit: Boom + spark + bass drop
+   - Separate whoosh sounds for attack windups
+
+---
+
+## ANIMATION TIMING STANDARDS
+
+Frame Budget @ 60 FPS (16.67ms total):
+- Physics: 4ms
+- Animation: 2ms
+- Rendering: 8ms
+- Logic: 2.67ms
+
+Attack Phase Anatomy:
+- STARTUP (Windup): 3-10 frames (no hitbox)
+- ACTIVE (Hit): 2-6 frames (hitbox ON)
+- RECOVERY (Commitment): 6-20 frames (no input)
+
+Lord Soul Combo Timing (8-hit Z punch):
+- Hit 1: 111ms (fast jab)
+- Hit 2: 250ms (combo builder)
+- Hit 3: 188ms (medium strike)
+- Hit 4: 143ms (body blow)
+- Hit 5: 143ms (uppercut launch)
+- Hit 6: 300ms (heavy upper)
+- Hit 7: 250ms (power flurry)
+- Hit 8: 188ms (finisher)
+
+Combo Windows (Input Buffer):
+- Fast characters: 200ms (strict)
+- Lord Soul: 280ms (balanced)
+- Heavy characters: 350ms (lenient)
+
+---
+
+## SPRITE NORMALIZATION
+
+CRITICAL PATTERN:
+All character sprites must maintain consistent visual size regardless of frame dimensions.
+
+Implementation:
+- Set targetDisplayHeight (e.g., 350px for Lord Soul)
+- On every frame change: calculate newScale = targetDisplayHeight / frame.realHeight
+- Apply scale immediately
+- This prevents visual "popping" during animations
+
+Character Scales:
+- Chibi Soul: 250px height
+- Lord Soul: 350px height
+- Big Z: 400-500px height
+
+---
+
+## INPUT BUFFERING
+
+Pattern:
+1. Input registered during active frames
+2. Stored in comboBuffer
+3. Checked on animation complete
+4. This allows "queueing" next hit before current one finishes
+
+Cancel Windows:
+- Light Attack → Medium Attack: Last 2 frames of recovery
+- Medium Attack → Heavy Attack: Last 3 frames of recovery
+- Any Attack → Special Move: Active frames only
+- Any Attack → Jump: Anytime
+
+Just Frame Bonuses:
+- Input within 50ms of active frame ending
+- Reward: +10% damage, 20% faster recovery
+- Visual: Character flash white, "JUST!" text
+
+---
+
+## ENEMY DESIGN
+
+Stagger States (based on knockback):
+- 0.1x+: Light stagger (tiny flinch, no interrupt)
+- 0.5x+: Medium stagger (pushed back, can still attack)
+- 1.0x+: Hard stagger (stunned, can't act)
+- 2.0x+: Launch (fully airborne, long recovery)
+
+Enemy Types:
+- Shadow Stalker: Teleports behind player, weak to fast attacks
+- Memory Leech: Drains XP on contact, weak to area attacks
+- Illusion Knight: Creates fake copies, hit real one (glows different)
+- Molten Drone: Immune to fire, weak to sword attacks
+- Shield Bot: Front shield blocks, hit from behind or use projectiles
+
+---
+
+## RPG SYSTEMS
+
+XP Progression:
+- Level 1: 0-100 XP
+- Level 2: 100-300 XP (200 needed)
+- Level 3: 300-600 XP (300 needed)
+- Formula: xpToNext = level * 100
+
+Stats (3 Core):
+- Power: +5% damage per point
+- Speed: +10 move speed, +2% attack speed per point
+- Will: +10 HP, +5% XP gain per point
+
+Currency (Ethics Credits - EC):
+- Enemy kill: 5-15 EC
+- Breakable object: 10-30 EC
+- Secret area: 50-100 EC
+- Lava execution bonus: +20 EC
+
+Move Unlocks:
+- Level-based OR lore-based (Memory Shards)
+- Example: Noktara shards unlock V Blast, Khemra shards unlock E Beam
+
+---
+
+## LEVEL DESIGN PATTERNS
+
+Level 1: Noktara (Memory Maze)
+- Theme: Psychological horror, shifting reality
+- Mechanic: Level changes based on collected Memory Shards
+- Shard types: Truth (blue, helps player) vs False (red, traps)
+- Unique: Moving shadows, memory echoes (ghost replays)
+
+Level 2: Khemra (Forge Descent)
+- Theme: Industrial hazard, rising danger
+- Mechanic: Rising lava forces upward progression
+- Hazards: Conveyor belts, breaking platforms, moving cranes
+- Combat twist: Knock enemies into lava for bonus XP
+
+---
+
+## PERFORMANCE OPTIMIZATION
+
+Critical Rules:
+1. Disable hitboxes when not active (physics cost)
+2. Update scale/body ONCE per frame change, not every physics step
+3. Particle counts should scale (don't spawn 100 particles on light hit)
+4. Use sprite batching for rendering
+5. Keep total frame time under 16.67ms for 60 FPS
+
+Debug Commands:
+- Log frame name and index
+- Log hitbox active state
+- Log combo window status
+- Monitor FPS during 4+ enemy fights
+
+---
+
+## CURT'S WORKING STYLE
+
+- "Sprint" pace: High-fidelity prototypes in hours, not weeks
+- Values: Clean, premium design (Bento grids, Tubik style)
+- Standard: "10/10 amazing" visual output
+- Philosophy: Kriya Yoga discipline applied to tech builds
+- Expectation: Functional, polished, ready-to-test builds
+
+---
+
+## FILE STRUCTURE PATTERNS
+
+Ethical_Avengers_V3/
+├── src/
+│   ├── entities/
+│   │   └── NeoPlayer_v16.js    # Player controller
+│   ├── scenes/
+│   │   ├── Boot_v16.js         # Asset loading & anims
+│   │   ├── BaseScene.js        # Scene base class
+│   │   └── CharacterSelectScene.js
+│   └── systems/
+│       ├── RPGSystem.js        # XP, credits, stats
+│       └── CombatFeedback.js   # Hit stop, shake, particles
+└── assets/
+    ├── images/
+    │   ├── characters/
+    │   ├── particles/
+    │   └── levels/
+    └── audio/
+        └── sfx/
+
+---
+
+## COMMON ISSUES & SOLUTIONS
+
+Problem: Sprites change size during animation
+Solution: Implement targetDisplayHeight normalization
+
+Problem: Hits don't register
+Solution: Check activeIndex matches actual frame count (0-indexed!)
+
+Problem: Combos feel clunky
+Solution: Increase comboWindow from 200ms to 280-300ms
+
+Problem: Projectiles spawn in wrong position
+Solution: Adjust fireY offset per character height
+
+Problem: Animation gets stuck
+Solution: Add safetyTimer fallback (600-1000ms)
+
+Problem: 60 FPS drops during combat
+Solution: Reduce particle count, disable unused hitboxes, optimize sprite batching
+
+---
+
+Last Updated: Analysis of MD_Files directory
+Context: Ethical Avengers V3 Development
