@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Into the Darkness - Level 1 Blockout</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        // ==========================================
+        // INTO THE DARKNESS - LEVEL 1 BLOCKOUT
+        // Placeholder: Blue BG, Orange Platforms, Square Player
+        // Designed for easy Tiled JSON replacement later
+        // ==========================================
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Resize handling
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // ==========================================
+        // INPUT SYSTEM
+        // ==========================================
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            // Prevent scrolling with arrows/space
+            if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        // ==========================================
+        // PHYSICS CONSTANTS (Tweak for feel)
+        // ==========================================
+        const GRAVITY = 0.65;
+        const JUMP_FORCE = -13;
+        const MOVE_SPEED = 5;
+        const FRICTION = 0.85;
+
+        // ==========================================
+        // PLAYER (Placeholder Square)
+        // ==========================================
+        const player = {
+            x: 150,
+            y: 300,
+            width: 32,
+            height: 32,
+            vx: 0,
+            vy: 0,
+            grounded: false,
+            facingRight: true,
+            color: '#ffffff'
+        };
+
+        // ==========================================
+        // CAMERA (Follows player with smoothing)
+        // ==========================================
+        const camera = {
+            x: 0,
+            y: 0,
+            targetX: 0,
+            targetY: 0,
+            smoothing: 0.1
+        };
+
+        // ==========================================
+        // LEVEL DATA (Replace with Tiled JSON later)
+        // Structure matches standard platformer tilemaps
+        // ==========================================
+        const levelPlatforms = [
+            // Floor segments
+            { x: 0, y: 600, w: 800, h: 40, type: 'floor' },
+            { x: 900, y: 600, w: 600, h: 40, type: 'floor' },
+            { x: 1600, y: 600, w: 1000, h: 40, type: 'floor' },
+            
+            // Platforms (Mega Man-style spacing)
+            { x: 300, y: 480, w: 120, h: 20, type: 'platform' },
+            { x: 550, y: 380, w: 100, h: 20, type: 'platform' },
+            { x: 850, y: 450, w: 140, h: 20, type: 'platform' },
+            { x: 1100, y: 350, w: 80, h: 20, type: 'platform' },
+            { x: 1350, y: 420, w: 160, h: 20, type: 'platform' },
+            { x: 1700, y: 480, w: 100, h: 20, type: 'platform' },
+            { x: 1950, y: 380, w: 120, h: 20, type: 'platform' },
+            { x: 2200, y: 280, w: 80, h: 20, type: 'platform' },
+        ];
+
+        // ==========================================
+        // COLLISION DETECTION (AABB)
+        // ==========================================
+        function resolveCollisions(entity, platforms) {
+            entity.grounded = false;
+            
+            for (let plat of platforms) {
+                // AABB overlap check
+                if (entity.x < plat.x + plat.w &&
+                    entity.x + entity.width > plat.x &&
+                    entity.y < plat.y + plat.h &&
+                    entity.y + entity.height > plat.y) {
+                    
+                    // Resolve from top (landing)
+                    if (entity.vy > 0 && entity.y + entity.height - entity.vy <= plat.y + 5) {
+                        entity.y = plat.y - entity.height;
+                        entity.vy = 0;
+                        entity.grounded = true;
+                    }
+                    // Resolve from bottom (hitting head)
+                    else if (entity.vy < 0 && entity.y - entity.vy >= plat.y + plat.h - 5) {
+                        entity.y = plat.y + plat.h;
+                        entity.vy = 0;
+                    }
+                    // Resolve from sides
+                    else if (entity.vx > 0) {
+                        entity.x = plat.x - entity.width;
+                    } else if (entity.vx < 0) {
+                        entity.x = plat.x + plat.w;
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // UPDATE LOOP
+        // ==========================================
+        function update() {
+            // Horizontal Movement
+            if (keys['ArrowLeft'] || keys['KeyA']) {
+                player.vx -= 1;
+                player.facingRight = false;
+            }
+            if (keys['ArrowRight'] || keys['KeyD']) {
+                player.vx += 1;
+                player.facingRight = true;
+            }
+
+            // Apply friction & clamp speed
+            player.vx *= FRICTION;
+            if (Math.abs(player.vx) < 0.1) player.vx = 0;
+            player.vx = Math.max(-MOVE_SPEED, Math.min(MOVE_SPEED, player.vx));
+
+            // Jump
+            if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.grounded) {
+                player.vy = JUMP_FORCE;
+                player.grounded = false;
+                // TODO: Add jump buffer & coyote time here (per KB standards)
+            }
+
+            // Gravity
+            player.vy += GRAVITY;
+
+            // Apply velocity
+            player.x += player.vx;
+            player.y += player.vy;
+
+            // Collision
+            resolveCollisions(player, levelPlatforms);
+
+            // Fall reset (pit death)
+            if (player.y > 1000) {
+                player.x = 150;
+                player.y = 300;
+                player.vx = 0;
+                player.vy = 0;
+            }
+
+            // Camera follow
+            camera.targetX = player.x - canvas.width * 0.4;
+            camera.targetY = player.y - canvas.height * 0.6;
+            camera.x += (camera.targetX - camera.x) * camera.smoothing;
+            camera.y += (camera.targetY - camera.y) * camera.smoothing;
+        }
+
+        // ==========================================
+        // RENDER LOOP
+        // ==========================================
+        function render() {
+            // Clear & Background (Dark Blue)
+            ctx.fillStyle = '#1a2b4c';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(-camera.x, -camera.y);
+
+            // Draw Platforms
+            for (let plat of levelPlatforms) {
+                ctx.fillStyle = plat.type === 'floor' ? '#ff8800' : '#ffaa33';
+                ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+                
+                // Platform outline for clarity
+                ctx.strokeStyle = '#cc6600';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
+            }
+
+            // Draw Player (Placeholder)
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            
+            // Direction indicator
+            ctx.fillStyle = '#000000';
+            const eyeX = player.facingRight ? player.x + 20 : player.x + 6;
+            ctx.fillRect(eyeX, player.y + 8, 6, 6);
+
+            ctx.restore();
+
+            // Debug UI
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px monospace';
+            ctx.fillText(`POS: ${Math.round(player.x)}, ${Math.round(player.y)}`, 10, 20);
+            ctx.fillText(`VEL: ${player.vx.toFixed(2)}, ${player.vy.toFixed(2)}`, 10, 35);
+            ctx.fillText(`GROUNDED: ${player.grounded}`, 10, 50);
+            ctx.fillText(`FPS: ~60 (requestAnimationFrame)`, 10, 65);
+        }
+
+        // ==========================================
+        // GAME LOOP
+        // ==========================================
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        loop();
+    </script>
+</body>
+</html>
