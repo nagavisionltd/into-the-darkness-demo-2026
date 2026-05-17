@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Into the Darkness - Level 1 Blockout</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        canvas { display: block; }
+    </style>
+    <audio id="bgm" loop>
+        <source src="https://raw.githubusercontent.com/nagavisionltd/into-the-darkness-demo-2026/master/assets/audio/music/IntoDarkness_ThemeSong_Moonlit_Gate.mp3" type="audio/mpeg">
+    </audio>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        // Try to play background music on first user interaction
+        let musicStarted = false;
+        function startMusic() {
+            if (!musicStarted) {
+                const bgm = document.getElementById('bgm');
+                bgm.volume = 0.4;
+                bgm.play().catch(e => console.log('Music autoplay blocked, waiting for interaction'));
+                musicStarted = true;
+            }
+        }
+        window.addEventListener('keydown', startMusic);
+        window.addEventListener('mousedown', startMusic);
+        window.addEventListener('touchstart', startMusic);
+        // ==========================================
+        // INTO THE DARKNESS - LEVEL 1 BLOCKOUT
+        // Noktara mood pass: moonlit ruined city, fire, rain, blockout player
+        // Designed for easy Tiled JSON replacement later
+        // ==========================================
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Resize handling
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // ==========================================
+        // INPUT SYSTEM
+        // ==========================================
+        const controls = {
+            left: ['KeyA', 'ArrowLeft'],
+            right: ['KeyD', 'ArrowRight'],
+            up: ['KeyW', 'ArrowUp'],
+            down: ['ArrowDown'],
+            dash: ['Space'],
+            combo: ['KeyC'],
+            strike: ['KeyF'],
+            blast: ['KeyV'],
+            guard: ['KeyX'],
+            toggle: ['KeyQ'],
+            flight: ['ShiftLeft', 'ShiftRight'],
+            shadowStep: ['KeyZ']
+        };
+        const keys = {};
+        const justPressed = {};
+        const justReleased = {};
+        window.addEventListener('keydown', e => {
+            if (!keys[e.code]) justPressed[e.code] = true;
+            keys[e.code] = true;
+            // Prevent scrolling with arrows/space
+            if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+        });
+        window.addEventListener('keyup', e => {
+            keys[e.code] = false;
+            justReleased[e.code] = true;
+        });
+
+        function actionHeld(action) {
+            return controls[action].some(code => keys[code]);
+        }
+
+        function actionPressed(action) {
+            return controls[action].some(code => justPressed[code]);
+        }
+
+        function actionReleased(action) {
+            return controls[action].some(code => justReleased[code]);
+        }
+
+        // ==========================================
+        // PHYSICS CONSTANTS (Tweak for feel)
+        // ==========================================
+        const GRAVITY = 0.65;
+        const JUMP_FORCE = -13;
+        const MOVE_SPEED = 5;
+        const FRICTION = 0.85;
+        const MAX_JUMPS = 2;
+        const DASH_SPEED = 12;
+        const DASH_FRAMES = 12;
+        const DASH_COOLDOWN = 22;
+        const ATTACK_FRAMES = 12;
+        const ATTACK_COOLDOWN = 18;
+        const COMBO_WINDOW = 28;
+        const SOMERSAULT_FRAMES = 28;
+        const BLAST_SPEED = 13;
+        const BLAST_COOLDOWN = 24;
+        const BLAST_CHARGE_1 = 14;
+        const BLAST_CHARGE_2 = 34;
+        const BLAST_CHARGE_3 = 56;
+        const FLOOR_SHARD_SPEED = 8;
+        const FREEZE_FRAMES = 150;
+        const WALL_SLIDE_SPEED = 2.2;
+        const WALL_JUMP_X = 9;
+        const WALL_JUMP_Y = -12;
+        const FLIGHT_MAX = 150;
+        const FLIGHT_RECHARGE = 1.2;
+        const FLIGHT_DRAIN = 1.8;
+        const FLIGHT_SPEED = 5.2;
+        const SHADOW_STEP_SPEED = 18;
+        const SHADOW_STEP_FRAMES = 8;
+        const SHADOW_STEP_COOLDOWN = 42;
+
+        // ==========================================
+        // PLAYER (Placeholder Square)
+        // ==========================================
+        const player = {
+            x: 150,
+            y: 300,
+            width: 32,
+            height: 32,
+            vx: 0,
+            vy: 0,
+            grounded: false,
+            jumpsUsed: 0,
+            jumpHeld: false,
+            dashTimer: 0,
+            dashCooldown: 0,
+            canDash: true,
+            attackTimer: 0,
+            attackCooldown: 0,
+            attackHitIds: new Set(),
+            attackKind: 'strike',
+            comboStep: 0,
+            comboWindow: 0,
+            blastCooldown: 0,
+            blastCharge: 0,
+            chargingBlast: false,
+            somersaultTimer: 0,
+            somersaultSpin: 0,
+            guard: false,
+            crouching: false,
+            touchingWall: 0,
+            wallSliding: false,
+            flightEnergy: FLIGHT_MAX,
+            flying: false,
+            shadowStepTimer: 0,
+            shadowStepCooldown: 0,
+            shardMode: 'truth',
+            truthShards: 0,
+            falseShards: 0,
+            hp: 100,
+            facingRight: true,
+            color: '#ffffff'
+        };
+
+        // ==========================================
+        // CAMERA (Follows player with smoothing)
+        // ==========================================
+        const camera = {
+            x: 0,
+            y: 0,
+            targetX: 0,
+            targetY: 0,
+            smoothing: 0.1
+        };
+
+        // ==========================================
+        // LEVEL DATA (Replace with Tiled JSON later)
+        // Structure matches standard platformer tilemaps
+        // ==========================================
+        const bossDoor = {
+            x: 8360,
+            y: 480,
+            closedY: 480,
+            openY: 340,
+            w: 40,
+            h: 120,
+            type: 'door',
+            opened: false
+        };
+
+        const bossExitDoor = {
+            x: 9280,
+            y: 480,
+            closedY: 480,
+            openY: 320,
+            w: 40,
+            h: 120,
+            type: 'door',
+            opened: false
+        };
+
+        const roomZones = [
+            { id: 'R1', name: 'The Awakening', x: 0, w: 850, y: 600, type: 'Horizontal', note: 'move / jump / first Truth shard' },
+            { id: 'R2', name: 'First Contact', x: 850, w: 750, y: 600, type: 'Horizontal + climb', note: 'first enemy and False risk' },
+            { id: 'R3', name: 'The Choice', x: 1600, w: 1000, y: 600, type: 'One-screen choice', note: 'Truth safe route vs False reward' },
+            { id: 'R4', name: 'Shifting Streets', x: 2750, w: 990, y: 600, type: 'Horizontal shift', note: 'Truth reveals safe platforms' },
+            { id: 'R5', name: 'Echo Chamber', x: 3810, w: 540, y: -140, type: 'Vertical climb', note: 'echo platform climb' },
+            { id: 'R6', name: 'The Gauntlet', x: 4380, w: 1830, y: 340, type: 'Horizontal combat', note: 'precision jumps plus enemies' },
+            { id: 'R7', name: 'Memory Fragment', x: 6220, w: 420, y: 430, type: 'Breather', note: 'safe checkpoint' },
+            { id: 'R8', name: 'Truth & Lies', x: 6640, w: 400, y: 600, type: 'Hybrid descent', note: 'shard choice under pressure' },
+            { id: 'R9', name: 'Shadow Dance', x: 7040, w: 510, y: 600, type: 'Vertical descent', note: 'late echo-platform test' },
+            { id: 'R11', name: 'Convergence', x: 7550, w: 770, y: 600, type: 'Final approach', note: 'all mechanics compressed' },
+            { id: 'R12', name: 'Antechamber', x: 8320, w: 240, y: 600, type: 'Boss door', note: 'sliding entrance' },
+            { id: 'R13', name: 'Memory Keeper', x: 8560, w: 760, y: 600, type: 'Tall boss arena', note: 'open combat box / no platforms' },
+            { id: 'R14', name: 'Aftermath', x: 9460, w: 680, y: 560, type: 'Exit', note: 'dawn / reward beat' },
+        ];
+
+        const optionalRooms = [
+            { id: 'R10', name: 'The Mirror', x: 6900, y: 170, w: 380, h: 220, note: 'optional secret test - enter later via Truth gate' },
+        ];
+
+        const levelPlatforms = [
+            // Opening floor segments
+            { x: 0, y: 600, w: 800, h: 360, type: 'floor' },
+            { x: 900, y: 600, w: 600, h: 40, type: 'floor' },
+            { x: 1600, y: 600, w: 420, h: 40, type: 'floor' },
+            { x: 2020, y: 600, w: 140, h: 40, type: 'falseCover' },
+            { x: 2160, y: 600, w: 440, h: 40, type: 'floor' },
+            
+            // R1 rooftop warm-up platforms
+            { x: 300, y: 480, w: 120, h: 20, type: 'platform' },
+            { x: 550, y: 380, w: 100, h: 20, type: 'platform' },
+
+            // R2 upward route to prize chest
+            { x: 930, y: 510, w: 150, h: 20, type: 'platform' },
+            { x: 1140, y: 420, w: 130, h: 20, type: 'platform' },
+            { x: 1340, y: 320, w: 160, h: 20, type: 'platform' },
+            { x: 1510, y: 230, w: 120, h: 20, type: 'platform' },
+
+            // R3 choice room and False-mode lower shaft
+            { x: 1700, y: 480, w: 100, h: 20, type: 'platform' },
+            { x: 1950, y: 380, w: 120, h: 20, type: 'platform' },
+            { x: 2200, y: 280, w: 80, h: 20, type: 'platform' },
+            { x: 2020, y: 640, w: 30, h: 220, type: 'falseWall' },
+            { x: 2130, y: 640, w: 30, h: 220, type: 'falseWall' },
+            { x: 1780, y: 860, w: 680, h: 40, type: 'falseFloor' },
+            { x: 1860, y: 760, w: 90, h: 20, type: 'falsePlatform' },
+            { x: 2220, y: 760, w: 90, h: 20, type: 'falsePlatform' },
+
+            // R4 shifting streets, ground-only read
+            { x: 2750, y: 600, w: 240, h: 40, type: 'floor' },
+            { x: 3140, y: 600, w: 180, h: 40, type: 'floor' },
+            { x: 3480, y: 600, w: 260, h: 40, type: 'floor' },
+
+            // Section 3: vertical climb shaft
+            { x: 3840, y: 600, w: 260, h: 40, type: 'floor' },
+            { x: 3810, y: 240, w: 40, h: 230, type: 'wall' },
+            { x: 4310, y: -160, w: 40, h: 800, type: 'wall' },
+            { x: 3980, y: 500, w: 90, h: 20, type: 'platform' },
+            { x: 4190, y: 410, w: 90, h: 20, type: 'platform' },
+            { x: 3940, y: 310, w: 80, h: 20, type: 'platform' },
+            { x: 4150, y: 210, w: 76, h: 20, type: 'platform' },
+            { x: 3920, y: 100, w: 70, h: 20, type: 'platform' },
+            { x: 4140, y: -20, w: 80, h: 20, type: 'platform' },
+            { x: 3920, y: -140, w: 160, h: 20, type: 'platform' },
+
+            // Section 4: upper-route precision jumps
+            { x: 4380, y: -140, w: 220, h: 30, type: 'floor' },
+            { x: 4740, y: -80, w: 70, h: 20, type: 'platform' },
+            { x: 4980, y: -10, w: 60, h: 20, type: 'platform' },
+            { x: 5220, y: 60, w: 56, h: 20, type: 'platform' },
+            { x: 5480, y: 140, w: 84, h: 20, type: 'platform' },
+            { x: 5750, y: 230, w: 76, h: 20, type: 'platform' },
+            { x: 6020, y: 340, w: 190, h: 30, type: 'floor' },
+            { x: 6290, y: 430, w: 240, h: 30, type: 'floor' },
+
+            // Section 5: descending run with wider gaps
+            { x: 6420, y: 430, w: 150, h: 30, type: 'floor' },
+            { x: 6840, y: 520, w: 150, h: 30, type: 'floor' },
+            { x: 7270, y: 600, w: 280, h: 40, type: 'floor' },
+            { x: 6590, y: 300, w: 58, h: 20, type: 'platform' },
+            { x: 7040, y: 390, w: 60, h: 20, type: 'platform' },
+
+            // Final boss hallway and arena blockout
+            { x: 7800, y: 600, w: 520, h: 40, type: 'floor' },
+            { x: 8210, y: 520, w: 150, h: 20, type: 'platform' },
+            { x: 8360, y: 600, w: 960, h: 40, type: 'arena' },
+            { x: 8360, y: 40, w: 40, h: 440, type: 'arenaWall' },
+            bossDoor,
+            { x: 9280, y: 40, w: 40, h: 440, type: 'arenaWall' },
+            bossExitDoor,
+            { x: 8360, y: 40, w: 960, h: 36, type: 'arenaWall' },
+
+            // Aftermath exit
+            { x: 9320, y: 560, w: 140, h: 40, type: 'floor' },
+            { x: 9460, y: 560, w: 680, h: 40, type: 'floor' },
+            { x: 9600, y: 440, w: 110, h: 20, type: 'platform' },
+            { x: 9850, y: 360, w: 160, h: 20, type: 'platform' },
+        ];
+
+        const shards = [
+            { id: 'truth-r1', x: 520, y: 430, r: 12, kind: 'truth', collected: false },
+            { id: 'false-r2', x: 1235, y: 395, r: 12, kind: 'false', collected: false },
+            { id: 'truth-r3', x: 1840, y: 545, r: 12, kind: 'truth', collected: false },
+            { id: 'false-r3', x: 2350, y: 230, r: 12, kind: 'false', collected: false },
+            { id: 'truth-r4', x: 3180, y: 545, r: 12, kind: 'truth', collected: false },
+            { id: 'truth-r5', x: 4160, y: 160, r: 12, kind: 'truth', collected: false },
+            { id: 'secret-r8', x: 7040, y: 350, r: 10, kind: 'secret', collected: false },
+            { id: 'false-r12', x: 8275, y: 485, r: 12, kind: 'false', collected: false },
+        ];
+
+        const chests = [
+            { id: 'r2-prize', x: 1548, y: 194, w: 46, h: 36, opened: false, label: 'PRIZE' },
+        ];
+
+        const enemies = [
+            { id: 'stalker-r2', x: 1280, y: 552, w: 30, h: 48, hp: 2, type: 'stalker', vx: 0, alive: true, frozenTimer: 0 },
+            { id: 'leech-r6-a', x: 4890, y: -58, w: 30, h: 48, hp: 2, type: 'leech', vx: 0, alive: true, frozenTimer: 0 },
+            { id: 'knight-r6', x: 6080, y: 292, w: 38, h: 48, hp: 3, type: 'knight', vx: 0, alive: true, frozenTimer: 0 },
+            { id: 'stalker-r8', x: 7310, y: 552, w: 30, h: 48, hp: 2, type: 'stalker', vx: 0, alive: true, frozenTimer: 0 },
+            { id: 'boss', x: 9030, y: 500, w: 72, h: 100, hp: 12, type: 'boss', vx: 0, alive: true, frozenTimer: 0 },
+        ];
+
+        const projectiles = [];
+        const ghostTrails = [];
+        let frameCount = 0;
+
+        const fireSources = [
+            { x: 140, y: 560, size: 42 },
+            { x: 620, y: 585, size: 28 },
+            { x: 1180, y: 570, size: 34 },
+            { x: 1760, y: 565, size: 32 },
+            { x: 2460, y: 560, size: 40 },
+            { x: 3520, y: 560, size: 36 },
+            { x: 6220, y: 392, size: 26 },
+            { x: 6890, y: 486, size: 30 },
+            { x: 8060, y: 560, size: 32 },
+            { x: 8890, y: 560, size: 44 },
+            { x: 8580, y: 558, size: 28 },
+            { x: 9180, y: 558, size: 28 },
+            { x: 9740, y: 520, size: 28 },
+        ];
+
+        const buildingRows = [
+            { parallax: 0.18, y: 210, color: '#07111e', alpha: 0.92, step: 280, baseH: 260 },
+            { parallax: 0.34, y: 280, color: '#0b1728', alpha: 0.96, step: 230, baseH: 230 },
+            { parallax: 0.55, y: 350, color: '#101b2c', alpha: 1, step: 190, baseH: 185 },
+        ];
+
+        // ==========================================
+        // COLLISION DETECTION (AABB)
+        // ==========================================
+        function rectsOverlap(a, b) {
+            return a.x < b.x + b.w &&
+                a.x + a.w > b.x &&
+                a.y < b.y + b.h &&
+                a.y + a.h > b.y;
+        }
+
+        function getAttackHitbox() {
+            let attackW = player.shardMode === 'false' ? 70 : 54;
+            let attackH = player.shardMode === 'false' ? 44 : 36;
+            if (player.attackKind === 'dash') {
+                attackW = 82;
+                attackH = 40;
+            } else if (player.attackKind === 'combo') {
+                attackW = 48 + player.comboStep * 8;
+                attackH = 34 + Math.min(player.comboStep, 3) * 2;
+            }
+            return {
+                x: player.facingRight ? player.x + player.width : player.x - attackW,
+                y: player.y + 2,
+                w: attackW,
+                h: attackH
+            };
+        }
+
+        function revealTruthPlatforms() {
+            for (let plat of levelPlatforms) {
+                if (plat.type === 'truthPlatform') {
+                    plat.revealed = true;
+                }
+            }
+        }
+
+        function currentRoom() {
+            return roomZones.find(room => player.x >= room.x && player.x < room.x + room.w) || roomZones[0];
+        }
+
+        function platformIsActive(plat) {
+            if (plat.hidden && !plat.revealed) return false;
+            if (plat.type === 'falseCover' && player.shardMode === 'false') return false;
+            if ((plat.type === 'falseWall' || plat.type === 'falseFloor' || plat.type === 'falsePlatform') && player.shardMode !== 'false') {
+                return false;
+            }
+            return true;
+        }
+
+        function platformIsVisible(plat) {
+            if (!platformIsActive(plat)) return false;
+            return true;
+        }
+
+        function blastChargeLevel() {
+            if (player.blastCharge >= BLAST_CHARGE_3) return 3;
+            if (player.blastCharge >= BLAST_CHARGE_2) return 2;
+            if (player.blastCharge >= BLAST_CHARGE_1) return 1;
+            return 0;
+        }
+
+        function fireBlast(level) {
+            const power = Math.max(1, level);
+            const blastSize = power >= 3 ? 42 : power === 2 ? 28 : 18;
+            projectiles.push({
+                x: player.facingRight ? player.x + player.width : player.x - blastSize,
+                y: player.y + (player.height - blastSize) / 2,
+                w: blastSize,
+                h: blastSize,
+                vx: player.facingRight ? BLAST_SPEED + power * 1.5 : -(BLAST_SPEED + power * 1.5),
+                life: 70 + power * 10,
+                damage: power,
+                chargeLevel: power,
+                kind: player.shardMode,
+                rotation: 0,
+                pulsePhase: 0
+            });
+            player.blastCooldown = BLAST_COOLDOWN;
+        }
+
+        function detectWallContact(entity, platforms) {
+            let wallDir = 0;
+            for (let plat of platforms) {
+                if (!platformIsActive(plat)) continue;
+                const verticalOverlap = entity.y < plat.y + plat.h && entity.y + entity.height > plat.y;
+                if (!verticalOverlap) continue;
+                const touchingLeftFace = Math.abs(entity.x + entity.width - plat.x) <= 3;
+                const touchingRightFace = Math.abs(entity.x - (plat.x + plat.w)) <= 3;
+                if (touchingLeftFace && entity.vx >= 0) wallDir = 1;
+                if (touchingRightFace && entity.vx <= 0) wallDir = -1;
+            }
+            return wallDir;
+        }
+
+        function drawFlame(x, y, size, time, alpha = 1) {
+            const sway = Math.sin(time * 0.12 + x * 0.03) * size * 0.12;
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            const glow = ctx.createRadialGradient(x, y, 0, x, y, size * 1.8);
+            glow.addColorStop(0, 'rgba(255, 190, 65, 0.42)');
+            glow.addColorStop(0.45, 'rgba(255, 88, 20, 0.20)');
+            glow.addColorStop(1, 'rgba(255, 60, 0, 0)');
+            ctx.fillStyle = glow;
+            ctx.fillRect(x - size * 2, y - size * 2, size * 4, size * 3);
+
+            ctx.fillStyle = '#ff5a17';
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.5, y);
+            ctx.quadraticCurveTo(x - size * 0.9 + sway, y - size * 0.7, x + sway, y - size * 1.6);
+            ctx.quadraticCurveTo(x + size * 0.9 + sway, y - size * 0.55, x + size * 0.45, y);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#ffd166';
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.22, y);
+            ctx.quadraticCurveTo(x - size * 0.42 - sway * 0.3, y - size * 0.45, x + sway * 0.2, y - size * 1.05);
+            ctx.quadraticCurveTo(x + size * 0.42, y - size * 0.32, x + size * 0.2, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawWorldBackdrop() {
+            const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            sky.addColorStop(0, '#020711');
+            sky.addColorStop(0.48, '#071426');
+            sky.addColorStop(1, '#111824');
+            ctx.fillStyle = sky;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const moonX = canvas.width * 0.55 - camera.x * 0.03;
+            const moonY = 112 - camera.y * 0.02;
+            const moon = ctx.createRadialGradient(moonX, moonY, 8, moonX, moonY, 96);
+            moon.addColorStop(0, 'rgba(241, 255, 218, 0.95)');
+            moon.addColorStop(0.55, 'rgba(209, 226, 190, 0.72)');
+            moon.addColorStop(1, 'rgba(209, 226, 190, 0)');
+            ctx.fillStyle = moon;
+            ctx.beginPath();
+            ctx.arc(moonX, moonY, 96, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(9, 18, 31, 0.42)';
+            ctx.fillRect(moonX - 70, moonY - 16, 145, 14);
+            ctx.fillRect(moonX - 52, moonY + 28, 112, 10);
+
+            for (let row of buildingRows) {
+                const start = Math.floor((camera.x * row.parallax - canvas.width) / row.step) * row.step;
+                ctx.globalAlpha = row.alpha;
+                ctx.fillStyle = row.color;
+                for (let x = start; x < camera.x * row.parallax + canvas.width + row.step; x += row.step) {
+                    const screenX = x - camera.x * row.parallax;
+                    const h = row.baseH + ((Math.abs(Math.sin(x * 0.015)) * 90) | 0);
+                    const w = row.step * (0.55 + Math.abs(Math.cos(x * 0.01)) * 0.22);
+                    ctx.fillRect(screenX, row.y - h - camera.y * row.parallax * 0.2, w, h);
+                    ctx.fillRect(screenX + w * 0.18, row.y - h - 44 - camera.y * row.parallax * 0.2, w * 0.24, 44);
+                    for (let i = 0; i < 5; i++) {
+                        if ((i + Math.floor(x / row.step)) % 3 === 0) {
+                            ctx.fillStyle = 'rgba(255, 104, 28, 0.62)';
+                            ctx.fillRect(screenX + 28 + i * 28, row.y - h + 42 + i * 18 - camera.y * row.parallax * 0.2, 9, 20);
+                            ctx.fillStyle = row.color;
+                        }
+                    }
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            ctx.strokeStyle = 'rgba(130, 170, 205, 0.24)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 70; i++) {
+                const x = (i * 137 + frameCount * 7 - camera.x * 0.18) % (canvas.width + 140) - 70;
+                const y = (i * 71 + frameCount * 14 - camera.y * 0.12) % (canvas.height + 120) - 80;
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x - 12, y + 36);
+                ctx.stroke();
+            }
+        }
+
+        function drawForegroundAtmosphere() {
+            ctx.save();
+            ctx.translate(-camera.x, -camera.y);
+            for (let fire of fireSources) {
+                drawFlame(fire.x, fire.y, fire.size, frameCount);
+            }
+            ctx.restore();
+        }
+
+        function resolveCollisions(entity, platforms) {
+            entity.grounded = false;
+            
+            for (let plat of platforms) {
+                if (!platformIsActive(plat)) continue;
+
+                // AABB overlap check
+                if (entity.x < plat.x + plat.w &&
+                    entity.x + entity.width > plat.x &&
+                    entity.y < plat.y + plat.h &&
+                    entity.y + entity.height > plat.y) {
+                    
+                    // Resolve from top (landing)
+                    if (entity.vy > 0 && entity.y + entity.height - entity.vy <= plat.y + 5) {
+                        entity.y = plat.y - entity.height;
+                        entity.vy = 0;
+                        entity.grounded = true;
+                    }
+                    // Resolve from bottom (hitting head)
+                    else if (entity.vy < 0 && entity.y - entity.vy >= plat.y + plat.h - 5) {
+                        entity.y = plat.y + plat.h;
+                        entity.vy = 0;
+                    }
+                    // Resolve from sides
+                    else if (entity.vx > 0) {
+                        entity.x = plat.x - entity.width;
+                    } else if (entity.vx < 0) {
+                        entity.x = plat.x + plat.w;
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // UPDATE LOOP
+        // ==========================================
+        function update() {
+            if (actionPressed('toggle')) {
+                player.shardMode = player.shardMode === 'truth' ? 'false' : 'truth';
+            }
+
+            if (player.dashCooldown > 0) player.dashCooldown--;
+            if (player.attackCooldown > 0) player.attackCooldown--;
+            if (player.blastCooldown > 0) player.blastCooldown--;
+            if (player.shadowStepCooldown > 0) player.shadowStepCooldown--;
+            if (player.somersaultTimer > 0) {
+                player.somersaultTimer--;
+                player.somersaultSpin += 0.55;
+            }
+            if (player.comboWindow > 0) player.comboWindow--;
+            if (player.comboWindow === 0 && player.attackTimer === 0) player.comboStep = 0;
+            if (player.attackTimer > 0) player.attackTimer--;
+            if (player.attackTimer === 0) player.attackHitIds.clear();
+            player.guard = actionHeld('guard');
+            player.crouching = actionHeld('down');
+
+            if (player.grounded) {
+                player.jumpsUsed = 0;
+                player.canDash = true;
+                player.flightEnergy = Math.min(FLIGHT_MAX, player.flightEnergy + FLIGHT_RECHARGE);
+            }
+
+            player.touchingWall = detectWallContact(player, levelPlatforms);
+            player.wallSliding = !player.grounded && player.touchingWall !== 0 && player.vy > 0 && !player.flying;
+
+            // Echo Step dash: short horizontal burst, refreshed on ground.
+            if (actionPressed('dash') && player.canDash && player.dashCooldown === 0 && !player.guard) {
+                player.dashTimer = DASH_FRAMES;
+                player.dashCooldown = DASH_COOLDOWN;
+                player.canDash = false;
+                player.vx = player.facingRight ? DASH_SPEED : -DASH_SPEED;
+                player.vy = Math.min(player.vy, 0);
+                ghostTrails.push({ x: player.x, y: player.y, life: 14 });
+            }
+
+            if (actionPressed('shadowStep') && player.shadowStepCooldown === 0 && !player.guard) {
+                player.shadowStepTimer = SHADOW_STEP_FRAMES;
+                player.shadowStepCooldown = SHADOW_STEP_COOLDOWN;
+                player.vx = player.facingRight ? SHADOW_STEP_SPEED : -SHADOW_STEP_SPEED;
+                player.vy = 0;
+                for (let i = 0; i < 4; i++) {
+                    ghostTrails.push({ x: player.x - i * 12 * (player.facingRight ? 1 : -1), y: player.y, life: 18 - i * 3, shadow: true });
+                }
+            }
+
+            if (actionPressed('combo') && player.attackCooldown === 0 && !player.guard) {
+                player.comboStep = player.comboWindow > 0 ? Math.min(player.comboStep + 1, 9) : 1;
+                player.comboWindow = COMBO_WINDOW;
+                player.attackKind = player.dashTimer > 0 ? 'dash' : 'combo';
+                player.attackTimer = player.comboStep >= 9 ? 18 : ATTACK_FRAMES;
+                player.attackCooldown = player.comboStep >= 9 ? 24 : 12;
+            }
+
+            // Shard Strike: Truth is safer/reveals, False is wider and hits harder.
+            if (actionPressed('strike') && player.attackCooldown === 0 && !player.guard) {
+                player.attackKind = 'strike';
+                player.attackTimer = ATTACK_FRAMES;
+                player.attackCooldown = ATTACK_COOLDOWN;
+                if (player.shardMode === 'truth') revealTruthPlatforms();
+            }
+
+            if (actionHeld('blast') && player.blastCooldown === 0 && !player.guard) {
+                player.chargingBlast = true;
+                player.blastCharge = Math.min(BLAST_CHARGE_3, player.blastCharge + 1);
+                player.vx *= 0.92;
+            }
+            if ((actionReleased('blast') || player.guard) && player.chargingBlast) {
+                fireBlast(blastChargeLevel());
+                player.chargingBlast = false;
+                player.blastCharge = 0;
+            }
+            if (!actionHeld('blast') && !player.chargingBlast && player.blastCharge > 0) {
+                player.blastCharge = 0;
+            }
+
+            player.flying = actionHeld('flight') && player.flightEnergy > 0 && !player.grounded && !player.guard;
+
+            if (player.shadowStepTimer > 0) {
+                player.shadowStepTimer--;
+                player.vx = player.facingRight ? SHADOW_STEP_SPEED : -SHADOW_STEP_SPEED;
+                player.vy = 0;
+                if (player.shadowStepTimer % 2 === 0) {
+                    ghostTrails.push({ x: player.x, y: player.y, life: 12, shadow: true });
+                }
+            } else if (player.dashTimer > 0) {
+                player.dashTimer--;
+                player.vx = player.facingRight ? DASH_SPEED : -DASH_SPEED;
+            } else {
+                // Horizontal Movement
+                if (!player.guard && actionHeld('left')) {
+                    player.vx -= 1;
+                    player.facingRight = false;
+                }
+                if (!player.guard && actionHeld('right')) {
+                    player.vx += 1;
+                    player.facingRight = true;
+                }
+
+                if (player.flying) {
+                    if (actionHeld('up')) player.vy -= 0.8;
+                    if (actionHeld('down')) player.vy += 0.8;
+                    player.vx = Math.max(-FLIGHT_SPEED, Math.min(FLIGHT_SPEED, player.vx));
+                    player.vy = Math.max(-FLIGHT_SPEED, Math.min(FLIGHT_SPEED, player.vy));
+                    player.flightEnergy = Math.max(0, player.flightEnergy - FLIGHT_DRAIN);
+                }
+
+                // Apply friction & clamp speed
+                player.vx *= player.guard || player.crouching ? 0.72 : FRICTION;
+                if (Math.abs(player.vx) < 0.1) player.vx = 0;
+                player.vx = Math.max(-MOVE_SPEED, Math.min(MOVE_SPEED, player.vx));
+            }
+
+            // Jump / double jump
+            const jumpPressed = actionHeld('up');
+            if (jumpPressed && !player.jumpHeld && player.wallSliding && !player.guard) {
+                player.vx = -player.touchingWall * WALL_JUMP_X;
+                player.vy = WALL_JUMP_Y;
+                player.facingRight = player.touchingWall < 0;
+                player.grounded = false;
+                player.canDash = true;
+            } else if (jumpPressed && !player.jumpHeld && player.jumpsUsed < MAX_JUMPS && !player.guard && !player.crouching) {
+                player.vy = JUMP_FORCE;
+                player.grounded = false;
+                player.jumpsUsed++;
+                if (player.jumpsUsed === 2) {
+                    player.canDash = true;
+                    player.somersaultTimer = SOMERSAULT_FRAMES;
+                    player.somersaultSpin = 0;
+                    ghostTrails.push({ x: player.x, y: player.y, life: 16, somersault: true });
+                }
+                // TODO: Add jump buffer & coyote time here (per KB standards)
+            }
+            player.jumpHeld = jumpPressed;
+
+            // Gravity
+            if (player.flying || player.shadowStepTimer > 0) {
+                player.vy += 0;
+            } else {
+                player.vy += player.dashTimer > 0 ? GRAVITY * 0.2 : GRAVITY;
+            }
+            if (player.wallSliding) {
+                player.vy = Math.min(player.vy, WALL_SLIDE_SPEED);
+            }
+
+            // Apply velocity
+            player.x += player.vx;
+            player.y += player.vy;
+
+            // Boss door opens when the player reaches the hallway.
+            if (player.x > 8075) {
+                bossDoor.opened = true;
+            }
+            const doorTargetY = bossDoor.opened ? bossDoor.openY : bossDoor.closedY;
+            bossDoor.y += (doorTargetY - bossDoor.y) * 0.16;
+
+            const boss = enemies.find(enemy => enemy.id === 'boss');
+            if (player.x > 9100 || (boss && !boss.alive)) {
+                bossExitDoor.opened = true;
+            }
+            const exitDoorTargetY = bossExitDoor.opened ? bossExitDoor.openY : bossExitDoor.closedY;
+            bossExitDoor.y += (exitDoorTargetY - bossExitDoor.y) * 0.16;
+
+            // Collision
+            resolveCollisions(player, levelPlatforms);
+
+            // Shard pickups and simple collectible gates.
+            for (let shard of shards) {
+                if (shard.collected) continue;
+                const shardBox = { x: shard.x - shard.r, y: shard.y - shard.r, w: shard.r * 2, h: shard.r * 2 };
+                if (rectsOverlap({ x: player.x, y: player.y, w: player.width, h: player.height }, shardBox)) {
+                    shard.collected = true;
+                    if (shard.kind === 'truth') {
+                        player.truthShards++;
+                        player.shardMode = 'truth';
+                        if (shard.reveals) revealTruthPlatforms();
+                    } else if (shard.kind === 'false') {
+                        player.falseShards++;
+                        player.shardMode = 'false';
+                    }
+                }
+            }
+
+            for (let chest of chests) {
+                if (chest.opened) continue;
+                if (rectsOverlap({ x: player.x, y: player.y, w: player.width, h: player.height }, chest)) {
+                    chest.opened = true;
+                    player.truthShards++;
+                }
+            }
+
+            // Lightweight enemy hit test for the new Shard Strike.
+            if (player.attackTimer > 0) {
+                const hitbox = getAttackHitbox();
+                for (let enemy of enemies) {
+                    if (!enemy.alive || player.attackHitIds.has(enemy.id)) continue;
+                    if (rectsOverlap(hitbox, enemy)) {
+                        const finisher = player.attackKind === 'combo' && player.comboStep >= 9;
+                        const damage = finisher ? 4 : player.attackKind === 'dash' ? 2 : player.shardMode === 'false' ? 2 : 1;
+                        const knockback = finisher ? 22 : player.attackKind === 'dash' ? 18 : player.shardMode === 'false' ? 14 : 8;
+                        enemy.hp -= damage;
+                        enemy.vx = player.facingRight ? knockback : -knockback;
+                        player.attackHitIds.add(enemy.id);
+                        if (enemy.hp <= 0) enemy.alive = false;
+                    }
+                }
+            }
+
+            for (let projectile of projectiles) {
+                projectile.x += projectile.vx;
+                projectile.life--;
+                projectile.pulsePhase += 0.15;
+                projectile.rotation += 0.08;
+                for (let enemy of enemies) {
+                    if (!enemy.alive || projectile.life <= 0) continue;
+                    if (rectsOverlap(projectile, enemy)) {
+                        enemy.hp -= projectile.damage;
+                        enemy.vx = projectile.vx > 0 ? 9 : -9;
+                        projectile.life = 0;
+                        if (enemy.hp <= 0) enemy.alive = false;
+                    }
+                }
+            }
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                if (projectiles[i].life <= 0) projectiles.splice(i, 1);
+            }
+
+            for (let enemy of enemies) {
+                if (!enemy.alive) continue;
+                enemy.x += enemy.vx;
+                enemy.vx *= 0.82;
+            }
+
+            for (let trail of ghostTrails) {
+                trail.life--;
+            }
+            for (let i = ghostTrails.length - 1; i >= 0; i--) {
+                if (ghostTrails[i].life <= 0) ghostTrails.splice(i, 1);
+            }
+
+            // Fall reset (pit death)
+            if (player.y > 1200) {
+                player.x = 150;
+                player.y = 300;
+                player.vx = 0;
+                player.vy = 0;
+                player.jumpsUsed = 0;
+                player.jumpHeld = false;
+                player.canDash = true;
+                player.dashTimer = 0;
+                player.attackTimer = 0;
+                player.comboStep = 0;
+                player.comboWindow = 0;
+                player.guard = false;
+                player.crouching = false;
+                player.touchingWall = 0;
+                player.wallSliding = false;
+                player.flightEnergy = FLIGHT_MAX;
+                player.flying = false;
+                player.shadowStepTimer = 0;
+                player.chargingBlast = false;
+                player.blastCharge = 0;
+                player.somersaultTimer = 0;
+                player.somersaultSpin = 0;
+            }
+
+            // Camera follow
+            camera.targetX = player.x - canvas.width * 0.4;
+            camera.targetY = player.y - canvas.height * 0.6;
+            camera.x += (camera.targetX - camera.x) * camera.smoothing;
+            camera.y += (camera.targetY - camera.y) * camera.smoothing;
+
+            for (let code in justPressed) {
+                delete justPressed[code];
+            }
+            for (let code in justReleased) {
+                delete justReleased[code];
+            }
+        }
+
+        // ==========================================
+        // RENDER LOOP
+        // ==========================================
+        function render() {
+            frameCount++;
+            drawWorldBackdrop();
+            drawForegroundAtmosphere();
+
+            ctx.save();
+            ctx.translate(-camera.x, -camera.y);
+
+            // Room labels and soft blockout boundaries.
+            for (let room of roomZones) {
+                ctx.fillStyle = room.id === currentRoom().id ? 'rgba(102, 217, 255, 0.08)' : 'rgba(255, 255, 255, 0.025)';
+                ctx.fillRect(room.x, -260, room.w, 980);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+                ctx.strokeRect(room.x, -260, room.w, 980);
+
+                ctx.fillStyle = '#dff8ff';
+                ctx.font = '16px monospace';
+                ctx.fillText(`${room.id}: ${room.name}`, room.x + 24, room.y - 245);
+                ctx.font = '12px monospace';
+                ctx.fillText(`${room.type} - ${room.note}`, room.x + 24, room.y - 225);
+            }
+
+            for (let room of optionalRooms) {
+                ctx.fillStyle = 'rgba(80, 220, 255, 0.06)';
+                ctx.fillRect(room.x, room.y, room.w, room.h);
+                ctx.setLineDash([8, 8]);
+                ctx.strokeStyle = '#50dcff';
+                ctx.strokeRect(room.x, room.y, room.w, room.h);
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#b9f7ff';
+                ctx.font = '16px monospace';
+                ctx.fillText(`${room.id}: ${room.name}`, room.x + 18, room.y + 32);
+                ctx.font = '12px monospace';
+                ctx.fillText(room.note, room.x + 18, room.y + 52);
+            }
+
+            // Cathedral-like boss arena dressing in R13.
+            ctx.fillStyle = 'rgba(9, 6, 14, 0.45)';
+            ctx.fillRect(8400, 76, 880, 524);
+            for (let x = 8460; x <= 9180; x += 180) {
+                ctx.fillStyle = 'rgba(20, 24, 36, 0.78)';
+                ctx.fillRect(x, 110, 46, 490);
+                ctx.fillStyle = 'rgba(110, 38, 48, 0.65)';
+                ctx.fillRect(x - 12, 95, 70, 18);
+                ctx.fillStyle = 'rgba(255, 91, 28, 0.18)';
+                ctx.fillRect(x + 12, 175, 16, 115);
+            }
+
+            // Rubble silhouettes to sell the destroyed street without blocking readability.
+            ctx.fillStyle = 'rgba(7, 12, 19, 0.72)';
+            for (let i = -2; i < 48; i++) {
+                const rx = i * 235 + 70;
+                const ry = 602 + Math.sin(i * 2.1) * 8;
+                ctx.fillRect(rx, ry - 14, 54, 14);
+                ctx.fillRect(rx + 22, ry - 26, 34, 12);
+            }
+
+            // Draw Platforms
+            for (let plat of levelPlatforms) {
+                if (!platformIsVisible(plat)) continue;
+
+                if (plat.type === 'floor') {
+                    ctx.fillStyle = '#27364a';
+                } else if (plat.type === 'wall') {
+                    ctx.fillStyle = '#1b293a';
+                } else if (plat.type === 'arena' || plat.type === 'arenaWall') {
+                    ctx.fillStyle = '#3b1721';
+                } else if (plat.type === 'door') {
+                    ctx.fillStyle = '#66d9ff';
+                } else if (plat.type === 'truthPlatform') {
+                    ctx.fillStyle = 'rgba(80, 220, 255, 0.8)';
+                } else if (plat.type === 'falseWall' || plat.type === 'falseFloor' || plat.type === 'falsePlatform') {
+                    ctx.fillStyle = 'rgba(255, 59, 95, 0.72)';
+                } else if (plat.type === 'falseCover') {
+                    ctx.fillStyle = '#2a3442';
+                } else {
+                    ctx.fillStyle = '#304256';
+                }
+                ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+
+                ctx.fillStyle = plat.type === 'arena' || plat.type === 'arenaWall' ? '#7e2d32' : plat.type === 'door' || plat.type === 'truthPlatform' ? 'rgba(223, 248, 255, 0.85)' : plat.type === 'falseWall' || plat.type === 'falseFloor' || plat.type === 'falsePlatform' ? 'rgba(255, 160, 180, 0.85)' : '#58718c';
+                ctx.fillRect(plat.x, plat.y, plat.w, Math.min(5, plat.h));
+                
+                // Platform outline for clarity
+                ctx.strokeStyle = plat.type === 'arena' || plat.type === 'arenaWall' ? '#ad3841' : plat.type === 'door' || plat.type === 'truthPlatform' ? '#dff8ff' : plat.type === 'falseWall' || plat.type === 'falseFloor' || plat.type === 'falsePlatform' ? '#ff3b5f' : '#121a26';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(plat.x, plat.y, plat.w, plat.h);
+            }
+
+            if (player.shardMode === 'false') {
+                ctx.fillStyle = 'rgba(255, 59, 95, 0.2)';
+                ctx.fillRect(2020, 600, 140, 260);
+                ctx.strokeStyle = 'rgba(255, 59, 95, 0.75)';
+                ctx.setLineDash([10, 8]);
+                ctx.strokeRect(2020, 600, 140, 260);
+                ctx.setLineDash([]);
+            }
+
+            for (let chest of chests) {
+                ctx.fillStyle = chest.opened ? '#44505f' : '#d49a31';
+                ctx.fillRect(chest.x, chest.y, chest.w, chest.h);
+                ctx.fillStyle = chest.opened ? '#7d8a9a' : '#ffe08a';
+                ctx.fillRect(chest.x + 4, chest.y + 4, chest.w - 8, 8);
+                ctx.strokeStyle = '#1a0f08';
+                ctx.strokeRect(chest.x, chest.y, chest.w, chest.h);
+                if (!chest.opened) {
+                    ctx.fillStyle = '#fff1b8';
+                    ctx.font = '10px monospace';
+                    ctx.fillText(chest.label, chest.x + 6, chest.y - 8);
+                }
+            }
+
+            // Shards and secret clue.
+            for (let shard of shards) {
+                if (shard.collected) continue;
+                ctx.beginPath();
+                ctx.fillStyle = shard.kind === 'truth' ? '#50dcff' : shard.kind === 'false' ? '#ff3b5f' : '#b9f7ff';
+                ctx.arc(shard.x, shard.y, shard.r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.stroke();
+            }
+
+            // Enemies / boss blockout.
+            for (let enemy of enemies) {
+                if (!enemy.alive) continue;
+                ctx.fillStyle = enemy.frozenTimer > 0 ? '#7df9ff' : enemy.type === 'boss' ? '#8b0000' : enemy.type === 'knight' ? '#22113a' : '#03050a';
+                ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+                ctx.strokeStyle = enemy.frozenTimer > 0 ? '#dff8ff' : enemy.type === 'boss' ? '#ffcccc' : '#ff3b5f';
+                ctx.strokeRect(enemy.x, enemy.y, enemy.w, enemy.h);
+                ctx.fillStyle = '#ff3b5f';
+                ctx.fillRect(enemy.x + 8, enemy.y + 8, 5, 5);
+                ctx.fillRect(enemy.x + enemy.w - 13, enemy.y + 8, 5, 5);
+            }
+
+            // Dash / flash-step ghosts.
+            for (let trail of ghostTrails) {
+                ctx.fillStyle = trail.shadow ? `rgba(20, 0, 40, ${trail.life / 20})` : trail.somersault ? `rgba(255, 255, 255, ${trail.life / 26})` : `rgba(80, 220, 255, ${trail.life / 28})`;
+                ctx.fillRect(trail.x, trail.y, player.width, player.height);
+            }
+
+            // E-Blast projectiles - Energy blast style (Street Fighter / Mega Man)
+            for (let projectile of projectiles) {
+                const centerX = projectile.x + projectile.w / 2;
+                const centerY = projectile.y + projectile.h / 2;
+                const pulseScale = 1 + Math.sin(projectile.pulsePhase) * 0.15;
+                
+                // Outer glow aura
+                const glowSize = projectile.w * 1.8 * pulseScale;
+                const gradient = ctx.createRadialGradient(centerX, centerY, projectile.w * 0.3, centerX, centerY, glowSize);
+                
+                if (projectile.chargeLevel >= 3) {
+                    // Massive charged blast - white/blue core with intense glow
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+                    gradient.addColorStop(0.2, 'rgba(200, 240, 255, 0.85)');
+                    gradient.addColorStop(0.4, 'rgba(114, 244, 255, 0.6)');
+                    gradient.addColorStop(0.7, 'rgba(51, 170, 255, 0.3)');
+                    gradient.addColorStop(1, 'rgba(51, 170, 255, 0)');
+                } else if (projectile.chargeLevel === 2) {
+                    // Medium blast - cyan energy ball
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                    gradient.addColorStop(0.25, 'rgba(114, 244, 255, 0.8)');
+                    gradient.addColorStop(0.5, 'rgba(51, 200, 255, 0.5)');
+                    gradient.addColorStop(0.8, 'rgba(51, 170, 255, 0.2)');
+                    gradient.addColorStop(1, 'rgba(51, 170, 255, 0)');
+                } else if (projectile.kind === 'truth') {
+                    // Small truth blast - blue energy fire
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+                    gradient.addColorStop(0.3, 'rgba(51, 170, 255, 0.75)');
+                    gradient.addColorStop(0.6, 'rgba(51, 140, 255, 0.4)');
+                    gradient.addColorStop(1, 'rgba(51, 100, 255, 0)');
+                } else {
+                    // Small false blast - red/pink energy fire
+                    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+                    gradient.addColorStop(0.3, 'rgba(255, 77, 119, 0.75)');
+                    gradient.addColorStop(0.6, 'rgba(255, 50, 100, 0.4)');
+                    gradient.addColorStop(1, 'rgba(255, 50, 100, 0)');
+                }
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, glowSize / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Bright inner core
+                const coreColor = projectile.chargeLevel >= 3 ? '#ffffff' : 
+                                  projectile.chargeLevel === 2 ? '#e0faff' : 
+                                  projectile.kind === 'truth' ? '#aaddff' : '#ffccdd';
+                ctx.fillStyle = coreColor;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, projectile.w * 0.35 * pulseScale, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Sparkle particles around high-charge blasts
+                if (projectile.chargeLevel >= 2) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    for (let i = 0; i < 3; i++) {
+                        const sparkAngle = projectile.rotation + (i * Math.PI * 2 / 3);
+                        const sparkDist = projectile.w * 0.7;
+                        const sparkX = centerX + Math.cos(sparkAngle) * sparkDist;
+                        const sparkY = centerY + Math.sin(sparkAngle) * sparkDist;
+                        ctx.beginPath();
+                        ctx.arc(sparkX, sparkY, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // Active attack hitbox.
+            if (player.attackTimer > 0) {
+                const hitbox = getAttackHitbox();
+                const attackAlpha = player.attackKind === 'combo' && player.comboStep >= 9 ? 0.7 : 0.45;
+                ctx.fillStyle = player.shardMode === 'truth' ? `rgba(80, 220, 255, ${attackAlpha})` : `rgba(255, 59, 95, ${attackAlpha})`;
+                ctx.fillRect(hitbox.x, hitbox.y, hitbox.w, hitbox.h);
+                ctx.strokeStyle = '#ffffff';
+                ctx.strokeRect(hitbox.x, hitbox.y, hitbox.w, hitbox.h);
+            }
+
+            // Draw Player (Placeholder)
+            const chargeLevel = blastChargeLevel();
+            ctx.fillStyle = player.shadowStepTimer > 0 ? '#201030' :
+                chargeLevel === 3 ? '#ffffff' :
+                chargeLevel === 2 ? '#72f4ff' :
+                chargeLevel === 1 ? '#1f8cff' :
+                player.flying ? '#b9f7ff' :
+                player.dashTimer > 0 ? '#66d9ff' :
+                player.color;
+            const drawHeight = player.crouching ? player.height * 0.55 : player.height;
+            const drawY = player.crouching ? player.y + player.height - drawHeight : player.y;
+            if (player.somersaultTimer > 0) {
+                ctx.save();
+                ctx.translate(player.x + player.width / 2, drawY + drawHeight / 2);
+                ctx.rotate(player.somersaultSpin);
+                ctx.fillRect(-player.width / 2, -drawHeight / 2, player.width, drawHeight);
+                ctx.fillStyle = 'rgba(80, 220, 255, 0.35)';
+                ctx.fillRect(-player.width / 2 - 8, -drawHeight / 2, 6, drawHeight);
+                ctx.restore();
+            } else {
+                ctx.fillRect(player.x, drawY, player.width, drawHeight);
+            }
+            ctx.strokeStyle = player.shardMode === 'truth' ? '#50dcff' : '#ff3b5f';
+            ctx.lineWidth = 3;
+            if (player.somersaultTimer > 0) {
+                ctx.save();
+                ctx.translate(player.x + player.width / 2, drawY + drawHeight / 2);
+                ctx.rotate(player.somersaultSpin);
+                ctx.strokeRect(-player.width / 2 - 2, -drawHeight / 2 - 2, player.width + 4, drawHeight + 4);
+                ctx.restore();
+            } else {
+                ctx.strokeRect(player.x - 2, drawY - 2, player.width + 4, drawHeight + 4);
+            }
+            if (player.chargingBlast) {
+                ctx.strokeStyle = chargeLevel === 3 ? '#ffffff' : chargeLevel === 2 ? '#72f4ff' : '#1f8cff';
+                ctx.lineWidth = 2 + chargeLevel;
+                ctx.beginPath();
+                ctx.arc(player.x + player.width / 2, player.y + player.height / 2, 22 + chargeLevel * 5, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            if (player.wallSliding) {
+                ctx.fillStyle = '#ffd166';
+                const sparkX = player.touchingWall > 0 ? player.x + player.width + 2 : player.x - 5;
+                ctx.fillRect(sparkX, player.y + 10, 4, 4);
+                ctx.fillRect(sparkX, player.y + 22, 3, 3);
+            }
+            if (player.flying) {
+                ctx.fillStyle = 'rgba(80, 220, 255, 0.35)';
+                ctx.fillRect(player.x - 8, player.y + player.height - 4, player.width + 16, 8);
+            }
+            if (player.guard) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                const shieldX = player.facingRight ? player.x + player.width + 4 : player.x - 10;
+                ctx.fillRect(shieldX, player.y - 2, 6, player.height + 4);
+            }
+            
+            // Direction indicator
+            ctx.fillStyle = '#000000';
+            const eyeX = player.facingRight ? player.x + 20 : player.x + 6;
+            ctx.fillRect(eyeX, drawY + 8, 6, 6);
+
+            ctx.restore();
+
+            // Screen-space ember flecks over the action.
+            ctx.fillStyle = 'rgba(255, 119, 28, 0.55)';
+            for (let i = 0; i < 22; i++) {
+                const x = (i * 197 + frameCount * 1.3 - camera.x * 0.1) % (canvas.width + 40) - 20;
+                const y = (canvas.height - 80 - ((i * 53 + frameCount * 2.1) % 260));
+                ctx.fillRect(x, y, 2, 2);
+            }
+
+            // Debug UI
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px monospace';
+            const room = currentRoom();
+            ctx.fillText(`POS: ${Math.round(player.x)}, ${Math.round(player.y)}`, 10, 20);
+            ctx.fillText(`VEL: ${player.vx.toFixed(2)}, ${player.vy.toFixed(2)}`, 10, 35);
+            ctx.fillText(`GROUNDED: ${player.grounded}`, 10, 50);
+            ctx.fillText(`JUMPS: ${player.jumpsUsed}/${MAX_JUMPS}`, 10, 65);
+            ctx.fillText(`DASH: ${player.canDash ? 'READY' : 'USED'} | MODE: ${player.shardMode.toUpperCase()} | COMBO: ${player.comboStep}`, 10, 80);
+            ctx.fillText(`SHARDS T/F: ${player.truthShards}/${player.falseShards} | ROOM: ${room.id} ${room.name}`, 10, 95);
+            ctx.fillText(`WALL: ${player.wallSliding ? 'SLIDE' : player.touchingWall || '-'} | FLIGHT: ${Math.round(player.flightEnergy)}/${FLIGHT_MAX} | SHADOW: ${player.shadowStepCooldown === 0 ? 'READY' : player.shadowStepCooldown} | CHARGE: ${chargeLevel}`, 10, 110);
+            ctx.fillText(`CONTROLS: A/D or Arrows move, W/Up jump/wall jump, Down crouch, Space dash, Shift flight, Z shadow step, C combo, F strike, V charge blast, X guard, Q toggle`, 10, 125);
+        }
+
+        // ==========================================
+        // GAME LOOP
+        // ==========================================
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        loop();
+    </script>
+</body>
+</html>

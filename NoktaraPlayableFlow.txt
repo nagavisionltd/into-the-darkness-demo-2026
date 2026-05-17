@@ -1,0 +1,72 @@
+NOKTARA - MEMORY MAZE PLAYABLE FLOW
+
+Main path:
+
+R1 Awakening
+  Horizontal safe intro
+  Teach: move, jump, first Truth reveal
+    |
+R2 First Contact
+  Horizontal + slight climb
+  Teach: first False risk, first enemy/knockback
+    |
+R3 The Choice
+  One-screen decision room
+  Gate: Truth route safe / False route risky reward
+    |
+R4 Shifting Streets
+  Horizontal reality-shift room
+  Introduce: shifting geometry
+  Route A: Truth stable platforms
+  Route B: False shortcut + enemies
+    |
+R5 Echo Chamber
+  Vertical climb
+  Isolate: Memory Echo platforms
+    |
+R6 Gauntlet
+  Horizontal combat room
+  Combine: enemies + hazards + shard risk
+    |
+R7 Breather
+  One-screen safe checkpoint
+  Reward: story fragment
+    |
+R8 Truth & Lies
+  Hybrid zig-zag descent
+  Echo pair: evolves R3 choice
+  Optional branch unlocked by 3+ Truth Shards
+    |                         \
+    |                          \
+R9 Shadow Dance             R10 The Mirror
+  Vertical descent             One-screen secret test
+  Echo pair: evolves R5        Reward: Memory Shard + EC
+    |                          /
+    |                         /
+R11 Convergence
+  Horizontal -> vertical hybrid
+  Mastery: all stage mechanics
+    |
+R12 Antechamber
+  Horizontal breather
+  Gate: final Truth/False choice, sliding boss door
+    |
+R13 Memory Keeper
+  One-screen boss arena
+  Mastery: counter Truth with False, False with Truth
+    |
+R14 Aftermath
+  Horizontal exit
+  Reward: V Blast, transition to Level 2
+
+Echo pairs:
+- R3 The Choice -> R8 Truth & Lies
+- R5 Echo Chamber -> R9 Shadow Dance
+- R2 First Contact -> R11 Convergence
+- R1 Awakening -> R12 Antechamber
+
+Checkpoints:
+- CP1 after R3
+- CP2 after R5
+- CP3 at R7
+- CP4 at R12 before boss
