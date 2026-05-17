@@ -1,4 +1,3 @@
-```
 # Logs and temp files
 *.log
 *.tmp
@@ -67,4 +66,3 @@ Thumbs.db
 *.Z
 *.lz
 *.lzo
-```
