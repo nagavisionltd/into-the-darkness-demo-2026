@@ -1,0 +1,13 @@
+[Room 1: Intro] → [Room 2: First Combat] → [Room 3: Choice]
+                            ↓
+            [Room 4: Reality Shift] → [Room 5: Vertical Echoes]
+                            ↓
+            [Room 6: Gauntlet] → [Room 7: Breather]
+                            ↓
+        [Room 8: Truth & Lies] → [Room 9: Shadow Dance]
+                            ↓
+            [Room 10: Secret Test] (optional)
+                            ↓
+            [Room 11: Convergence] → [Room 12: Antechamber]
+                            ↓
+                [Room 13: BOSS] → [Room 14: Exit]

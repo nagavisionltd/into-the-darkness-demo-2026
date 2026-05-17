@@ -1,0 +1,6 @@
+﻿Mistake,Why It Fails,Fix
+Loading JSON as image,"load.image('map', 'level.json')",Use load.tilemapTiledJSON()
+Wrong tileset key,"addTilesetImage('wrong_name', ...)",Match Tiled's tileset name EXACTLY
+Collision on wrong layer,Setting collision on decorative layer,Use setCollisionByProperty({collides:true}) + set property in Tiled
+Frame timing off,Using frameRate without checking KB standards,Use per-frame duration for KB-compliant combo timing
+Sprite popping,Not normalizing scale per frame,Implement targetDisplayHeight pattern above
